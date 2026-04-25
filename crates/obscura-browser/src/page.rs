@@ -84,13 +84,21 @@ impl Page {
             return false;
         }
         for pattern in &self.intercept_block_patterns {
-            if pattern == "*" { return true; }
+            if pattern == "*" {
+                return true;
+            }
             if pattern.starts_with('*') && pattern.ends_with('*') {
-                if url.contains(&pattern[1..pattern.len()-1]) { return true; }
+                if url.contains(&pattern[1..pattern.len() - 1]) {
+                    return true;
+                }
             } else if pattern.starts_with('*') {
-                if url.ends_with(&pattern[1..]) { return true; }
+                if url.ends_with(&pattern[1..]) {
+                    return true;
+                }
             } else if pattern.ends_with('*') {
-                if url.starts_with(&pattern[..pattern.len()-1]) { return true; }
+                if url.starts_with(&pattern[..pattern.len() - 1]) {
+                    return true;
+                }
             } else if url.contains(pattern) {
                 return true;
             }
@@ -119,12 +127,14 @@ impl Page {
                 js.set_dom(d);
             }
 
-            let _ = js.execute_script("<reset>",
+            let _ = js.execute_script(
+                "<reset>",
                 "_cache.clear(); globalThis.__obscura_objects = {}; globalThis.__obscura_oid = 0; \
                  _iframeRegistry.length = 0; globalThis.length = 0; \
                  globalThis._formValues = {}; globalThis._formChecked = {}; \
                  globalThis._eventRegistry = {}; \
-                 globalThis.document = new Document(+_dom('document_node_id'));");
+                 globalThis.document = new Document(+_dom('document_node_id'));",
+            );
 
             return;
         }
@@ -159,7 +169,10 @@ impl Page {
     }
 
     async fn execute_scripts(&mut self) {
-        tracing::info!("execute_scripts called, js runtime exists: {}", self.js.is_some());
+        tracing::info!(
+            "execute_scripts called, js runtime exists: {}",
+            self.js.is_some()
+        );
 
         #[derive(Debug)]
         struct ScriptInfo {
@@ -171,8 +184,8 @@ impl Page {
         }
 
         let all_scripts = match &self.js {
-            Some(js) => {
-                js.with_dom(|dom| {
+            Some(js) => js
+                .with_dom(|dom| {
                     let script_ids = dom.query_selector_all("script").unwrap_or_default();
                     let mut scripts = Vec::new();
 
@@ -210,8 +223,8 @@ impl Page {
                         }
                     }
                     scripts
-                }).unwrap_or_default()
-            }
+                })
+                .unwrap_or_default(),
             None => return,
         };
 
@@ -237,8 +250,14 @@ impl Page {
 
         let scripts = regular;
 
-        tracing::info!("Found {} regular + {} deferred + {} async scripts", scripts.len(), deferred.len(), async_scripts.len());
-        let all_to_execute: Vec<ScriptInfo> = scripts.into_iter()
+        tracing::info!(
+            "Found {} regular + {} deferred + {} async scripts",
+            scripts.len(),
+            deferred.len(),
+            async_scripts.len()
+        );
+        let all_to_execute: Vec<ScriptInfo> = scripts
+            .into_iter()
             .chain(deferred.into_iter())
             .chain(async_scripts.into_iter())
             .collect();
@@ -248,10 +267,13 @@ impl Page {
 
         for (i, script) in all_to_execute.iter().enumerate() {
             if let Some(src_url) = &script.src {
-                let full_url = if src_url.starts_with("http://") || src_url.starts_with("https://") {
+                let full_url = if src_url.starts_with("http://") || src_url.starts_with("https://")
+                {
                     src_url.clone()
                 } else if let Some(base) = &self.url {
-                    base.join(src_url).map(|u| u.to_string()).unwrap_or_else(|_| src_url.clone())
+                    base.join(src_url)
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|_| src_url.clone())
                 } else {
                     src_url.clone()
                 };
@@ -266,25 +288,30 @@ impl Page {
         }
 
         let client = self.http_client.clone();
-        let fetch_futures: Vec<_> = fetch_tasks.iter().map(|(idx, url)| {
-            let client = client.clone();
-            let url = url.clone();
-            let idx = *idx;
-            async move {
-                let parsed = Url::parse(&url).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
-                match client.fetch(&parsed).await {
-                    Ok(resp) => Some((idx, url, resp)),
-                    Err(e) => {
-                        tracing::warn!("Failed to fetch script {}: {}", url, e);
-                        None
+        let fetch_futures: Vec<_> = fetch_tasks
+            .iter()
+            .map(|(idx, url)| {
+                let client = client.clone();
+                let url = url.clone();
+                let idx = *idx;
+                async move {
+                    let parsed =
+                        Url::parse(&url).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
+                    match client.fetch(&parsed).await {
+                        Ok(resp) => Some((idx, url, resp)),
+                        Err(e) => {
+                            tracing::warn!("Failed to fetch script {}: {}", url, e);
+                            None
+                        }
                     }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         let fetch_results = futures::future::join_all(fetch_futures).await;
 
-        let mut fetched: std::collections::HashMap<usize, (String, String, obscura_net::Response)> = std::collections::HashMap::new();
+        let mut fetched: std::collections::HashMap<usize, (String, String, obscura_net::Response)> =
+            std::collections::HashMap::new();
         for result in fetch_results {
             if let Some((idx, url, resp)) = result {
                 let code = String::from_utf8_lossy(&resp.body).to_string();
@@ -296,7 +323,14 @@ impl Page {
             if script.src.is_some() {
                 if let Some((url, code, resp)) = fetched.remove(&i) {
                     tracing::info!("Executing script ({} bytes): {}", code.len(), url);
-                    self.record_network_event(&url, "GET", "Script", resp.status, &resp.headers, resp.body.len());
+                    self.record_network_event(
+                        &url,
+                        "GET",
+                        "Script",
+                        resp.status,
+                        &resp.headers,
+                        resp.body.len(),
+                    );
                     if let Some(js) = &mut self.js {
                         if let Err(e) = js.execute_script_guarded(&url, &code) {
                             tracing::warn!("Script error ({}): {}", url, e);
@@ -317,7 +351,9 @@ impl Page {
                 let full_url = if src.starts_with("http://") || src.starts_with("https://") {
                     src.clone()
                 } else if let Some(base) = &self.url {
-                    base.join(src).map(|u| u.to_string()).unwrap_or_else(|_| src.clone())
+                    base.join(src)
+                        .map(|u| u.to_string())
+                        .unwrap_or_else(|_| src.clone())
                 } else {
                     src.clone()
                 };
@@ -327,7 +363,14 @@ impl Page {
                     match js.load_module(&full_url).await {
                         Ok(()) => {
                             tracing::info!("ES module loaded: {}", full_url);
-                            self.record_network_event(&full_url, "GET", "Script", 200, &std::collections::HashMap::new(), 0);
+                            self.record_network_event(
+                                &full_url,
+                                "GET",
+                                "Script",
+                                200,
+                                &std::collections::HashMap::new(),
+                                0,
+                            );
                         }
                         Err(e) => {
                             tracing::warn!("ES module error ({}): {}", full_url, e);
@@ -358,7 +401,8 @@ impl Page {
                 let result = tokio::time::timeout(
                     tokio::time::Duration::from_millis(10),
                     js.run_event_loop(),
-                ).await;
+                )
+                .await;
 
                 match result {
                     Ok(Ok(())) => {
@@ -386,7 +430,8 @@ impl Page {
     }
 
     pub async fn navigate(&mut self, url_str: &str) -> Result<(), PageError> {
-        self.navigate_with_wait(url_str, crate::lifecycle::WaitUntil::Load).await
+        self.navigate_with_wait(url_str, crate::lifecycle::WaitUntil::Load)
+            .await
     }
 
     pub async fn navigate_with_wait(
@@ -394,7 +439,8 @@ impl Page {
         url_str: &str,
         wait_until: crate::lifecycle::WaitUntil,
     ) -> Result<(), PageError> {
-        self.navigate_with_wait_post(url_str, wait_until, "GET", "").await
+        self.navigate_with_wait_post(url_str, wait_until, "GET", "")
+            .await
     }
 
     pub async fn navigate_with_wait_post(
@@ -408,9 +454,15 @@ impl Page {
         let mut current_method = method.to_string();
         let mut current_body = body.to_string();
         for _chain in 0..10 {
-            self.navigate_single(&current_url, wait_until, &current_method, &current_body).await?;
+            self.navigate_single(&current_url, wait_until, &current_method, &current_body)
+                .await?;
             if let Some((next_url, next_method, next_body)) = self.take_pending_navigation() {
-                tracing::info!("JS-triggered navigation chain: {} {} -> {}", current_method, current_url, next_url);
+                tracing::info!(
+                    "JS-triggered navigation chain: {} {} -> {}",
+                    current_method,
+                    current_url,
+                    next_url
+                );
                 current_url = next_url;
                 current_method = next_method;
                 current_body = next_body;
@@ -466,7 +518,8 @@ impl Page {
             self.http_client.post_form(&url, body).await
         } else {
             self.do_fetch(&url).await
-        }.map_err(|e| {
+        }
+        .map_err(|e| {
             self.lifecycle = LifecycleState::Failed;
             PageError::NetworkError(e.to_string())
         })?;
@@ -513,7 +566,9 @@ impl Page {
             let full_url = if href.starts_with("http://") || href.starts_with("https://") {
                 href.clone()
             } else if let Some(base) = &self.url {
-                base.join(href).map(|u| u.to_string()).unwrap_or_else(|_| href.clone())
+                base.join(href)
+                    .map(|u| u.to_string())
+                    .unwrap_or_else(|_| href.clone())
             } else {
                 href.clone()
             };
@@ -525,27 +580,38 @@ impl Page {
         }
 
         let client = self.http_client.clone();
-        let css_futures: Vec<_> = css_fetch_urls.iter().map(|full_url| {
-            let client = client.clone();
-            let url_str = full_url.clone();
-            async move {
-                let parsed = Url::parse(&url_str).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
-                match client.fetch(&parsed).await {
-                    Ok(resp) => Some((url_str, resp)),
-                    Err(e) => {
-                        tracing::debug!("Failed to fetch stylesheet {}: {}", url_str, e);
-                        None
+        let css_futures: Vec<_> = css_fetch_urls
+            .iter()
+            .map(|full_url| {
+                let client = client.clone();
+                let url_str = full_url.clone();
+                async move {
+                    let parsed =
+                        Url::parse(&url_str).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
+                    match client.fetch(&parsed).await {
+                        Ok(resp) => Some((url_str, resp)),
+                        Err(e) => {
+                            tracing::debug!("Failed to fetch stylesheet {}: {}", url_str, e);
+                            None
+                        }
                     }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         let css_results = futures::future::join_all(css_futures).await;
         let mut css_sources = Vec::new();
         for result in css_results {
             if let Some((url_str, resp)) = result {
                 let css = String::from_utf8_lossy(&resp.body).to_string();
-                self.record_network_event(&url_str, "GET", "Stylesheet", resp.status, &resp.headers, resp.body.len());
+                self.record_network_event(
+                    &url_str,
+                    "GET",
+                    "Stylesheet",
+                    resp.status,
+                    &resp.headers,
+                    resp.body.len(),
+                );
                 css_sources.push(css);
             }
         }
@@ -609,7 +675,9 @@ impl Page {
                     if idle_since.is_none() {
                         idle_since = Some(now);
                     }
-                    if now.duration_since(idle_since.unwrap()) >= tokio::time::Duration::from_millis(500) {
+                    if now.duration_since(idle_since.unwrap())
+                        >= tokio::time::Duration::from_millis(500)
+                    {
                         break;
                     }
                 } else {
@@ -617,7 +685,10 @@ impl Page {
                 }
 
                 if now >= deadline {
-                    tracing::debug!("Network idle timeout reached with {} active requests", active);
+                    tracing::debug!(
+                        "Network idle timeout reached with {} active requests",
+                        active
+                    );
                     break;
                 }
 
@@ -625,12 +696,20 @@ impl Page {
                     let _ = tokio::time::timeout(
                         tokio::time::Duration::from_millis(50),
                         js.run_event_loop(),
-                    ).await;
+                    )
+                    .await;
                 } else {
                     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 }
             }
 
+            self.lifecycle = LifecycleState::NetworkIdle;
+        }
+
+        // Extended hydration wait for SPA/React/Vue/Angular apps
+        if wait_until.requires_hydration_wait() {
+            tracing::debug!("Waiting for SPA hydration...");
+            self.wait_for_hydration(10000).await; // 10 second max hydration wait
             self.lifecycle = LifecycleState::NetworkIdle;
         }
 
@@ -640,7 +719,9 @@ impl Page {
     pub fn navigate_blank(&mut self) {
         self.js = None;
         self.url = Some(Url::parse("about:blank").unwrap());
-        self.dom = Some(parse_html("<!DOCTYPE html><html><head></head><body></body></html>"));
+        self.dom = Some(parse_html(
+            "<!DOCTYPE html><html><head></head><body></body></html>",
+        ));
         self.title = String::new();
         self.lifecycle = LifecycleState::Loaded;
     }
@@ -668,7 +749,11 @@ impl Page {
             match js.evaluate(expression) {
                 Ok(val) => val,
                 Err(e) => {
-                    tracing::debug!("JS eval error for '{}': {}", &expression[..expression.len().min(80)], e);
+                    tracing::debug!(
+                        "JS eval error for '{}': {}",
+                        &expression[..expression.len().min(80)],
+                        e
+                    );
                     serde_json::Value::Null
                 }
             }
@@ -730,7 +815,16 @@ impl Page {
         await_promise: bool,
     ) -> obscura_js::runtime::RemoteObjectInfo {
         if let Some(js) = &mut self.js {
-            match js.call_function_on_for_cdp(function_declaration, object_id, args, return_by_value, await_promise).await {
+            match js
+                .call_function_on_for_cdp(
+                    function_declaration,
+                    object_id,
+                    args,
+                    return_by_value,
+                    await_promise,
+                )
+                .await
+            {
                 Ok(info) => info,
                 Err(e) => {
                     tracing::debug!("callFunctionOn error: {}", e);
@@ -837,11 +931,212 @@ impl Page {
         }
     }
 
-    pub fn set_intercept_tx(&mut self, tx: tokio::sync::mpsc::UnboundedSender<obscura_js::ops::InterceptedRequest>) {
+    pub fn set_intercept_tx(
+        &mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<obscura_js::ops::InterceptedRequest>,
+    ) {
         self.intercept_tx = Some(tx.clone());
         if let Some(js) = &self.js {
             js.set_intercept_tx(tx);
         }
+    }
+
+    /// Capture a screenshot of the current page
+    ///
+    /// Returns base64-encoded PNG data in CDP format:
+    /// ```json
+    /// {
+    ///     "data": "base64-encoded-png-data",
+    ///     "mimeType": "image/png"
+    /// }
+    /// ```
+    pub fn capture_screenshot(&self, width: u32, height: u32) -> Result<String, String> {
+        let dom = match &self.dom {
+            Some(d) => d,
+            None => return Err("No DOM available".to_string()),
+        };
+
+        obscura_render::render_screenshot(dom, width, height).map_err(|e| e.to_string())
+    }
+
+    /// Wait for a CSS selector to appear in the DOM.
+    /// This is useful for SPAs where content is rendered via JavaScript.
+    ///
+    /// Returns `true` if the selector was found, `false` if timeout occurred.
+    pub async fn wait_for_selector(&mut self, selector: &str, timeout_ms: u64) -> bool {
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+        loop {
+            let found = self
+                .with_dom(|dom| dom.query_selector(selector).ok().flatten().is_some())
+                .unwrap_or(false);
+
+            if found {
+                return true;
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+
+            // Run the JS event loop briefly to let JS continue executing
+            if let Some(js) = &mut self.js {
+                let _ = tokio::time::timeout(
+                    tokio::time::Duration::from_millis(50),
+                    js.run_event_loop(),
+                )
+                .await;
+            } else {
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            }
+        }
+    }
+
+    /// Wait for a JavaScript expression to evaluate to a truthy value.
+    /// This is useful for SPAs where you need to wait for specific JS state.
+    ///
+    /// Returns `true` if the expression became truthy, `false` if timeout occurred.
+    pub async fn wait_for_function(&mut self, js_expression: &str, timeout_ms: u64) -> bool {
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+        loop {
+            let result = self.evaluate(js_expression);
+            let is_truthy = !result.is_null() && result.as_bool().unwrap_or(true);
+
+            if is_truthy {
+                return true;
+            }
+
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+
+            // Run the JS event loop briefly to let JS continue executing
+            if let Some(js) = &mut self.js {
+                let _ = tokio::time::timeout(
+                    tokio::time::Duration::from_millis(50),
+                    js.run_event_loop(),
+                )
+                .await;
+            } else {
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            }
+        }
+    }
+
+    /// Wait for the JavaScript event loop to become idle.
+    /// This is useful after JS has been executed to wait for all promises
+    /// and async operations to complete.
+    ///
+    /// Returns `true` if idle was reached, `false` if timeout occurred.
+    pub async fn wait_for_js_idle(&mut self, timeout_ms: u64) -> bool {
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+        let mut idle_count = 0u32;
+
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+
+            if let Some(js) = &mut self.js {
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_millis(50),
+                    js.run_event_loop(),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {
+                        if self.http_client.active_requests() == 0 {
+                            idle_count += 1;
+                            if idle_count >= 3 {
+                                return true;
+                            }
+                            tokio::task::yield_now().await;
+                        } else {
+                            idle_count = 0;
+                        }
+                    }
+                    Ok(Err(_)) => return true,
+                    Err(_) => {
+                        idle_count = 0;
+                    }
+                }
+            } else {
+                return true;
+            }
+        }
+    }
+
+    /// Extended wait for SPA/React hydration.
+    /// This runs an extended event loop poll to allow JavaScript frameworks
+    /// to fully render their content before we capture the DOM.
+    ///
+    /// The `timeout_ms` controls how long to wait maximum, and we also
+    /// check for DOM stability (no changes for a period) to detect when
+    /// hydration is likely complete.
+    pub async fn wait_for_hydration(&mut self, timeout_ms: u64) -> bool {
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_millis(timeout_ms);
+        let mut last_dom_size: Option<usize> = None;
+        let mut stable_count = 0u32;
+
+        // Wait up to timeout_ms, but also check for DOM stability
+        loop {
+            if tokio::time::Instant::now() >= deadline {
+                tracing::debug!("Hydration wait timeout reached");
+                break;
+            }
+
+            // Get current DOM "size" as a proxy for stability
+            let current_size = self
+                .with_dom(|dom| {
+                    dom.query_selector_all("body")
+                        .ok()
+                        .and_then(|nodes| nodes.first().copied())
+                        .map(|nid| dom.children(nid).len())
+                })
+                .flatten();
+
+            if let Some(current_size) = current_size {
+                if let Some(last) = last_dom_size {
+                    if current_size == last {
+                        stable_count += 1;
+                        if stable_count >= 3 {
+                            tracing::debug!("DOM stability reached after {}ms", timeout_ms);
+                            break;
+                        }
+                    } else {
+                        stable_count = 0;
+                    }
+                }
+                last_dom_size = Some(current_size);
+            }
+
+            // Run the JS event loop to let React/Vue/Angular continue rendering
+            if let Some(js) = &mut self.js {
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_millis(100),
+                    js.run_event_loop(),
+                )
+                .await
+                {
+                    Ok(Ok(())) => {
+                        // Event loop processed without issues
+                        tokio::task::yield_now().await;
+                    }
+                    Ok(Err(e)) => {
+                        tracing::debug!("JS event loop error during hydration wait: {}", e);
+                        break;
+                    }
+                    Err(_) => {
+                        // Timeout is normal - just means no events right now
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Final short wait to ensure any final renders complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        true
     }
 }
 

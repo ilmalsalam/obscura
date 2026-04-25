@@ -1,0 +1,17 @@
+[package]
+name = "obscura-render"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+obscura-dom = { workspace = true }
+tiny-skia = "0.11"
+image = { version = "0.25", default-features = false, features = ["png"] }
+cosmic-text = { version = "0.11", default-features = false, features = ["std", "swash"] }
+base64 = "0.22"
+cssparser = { workspace = true }
+selectors = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+regex = "1"
+once_cell = "1"
